@@ -69,6 +69,7 @@ export interface Config {
   collections: {
     users: User;
     media: Media;
+    tenants: Tenant;
     forms: Form;
     'form-submissions': FormSubmission;
     'payload-locked-documents': PayloadLockedDocument;
@@ -79,6 +80,7 @@ export interface Config {
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
+    tenants: TenantsSelect<false> | TenantsSelect<true>;
     forms: FormsSelect<false> | FormsSelect<true>;
     'form-submissions': FormSubmissionsSelect<false> | FormSubmissionsSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
@@ -123,6 +125,14 @@ export interface UserAuthOperations {
  */
 export interface User {
   id: number;
+  role: 'admin' | 'tenant-admin' | 'user';
+  tenant?: (number | null) | Tenant;
+  tenants?:
+    | {
+        tenant: number | Tenant;
+        id?: string | null;
+      }[]
+    | null;
   updatedAt: string;
   createdAt: string;
   email: string;
@@ -133,6 +143,22 @@ export interface User {
   loginAttempts?: number | null;
   lockUntil?: string | null;
   password?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "tenants".
+ */
+export interface Tenant {
+  id: number;
+  name: string;
+  domain: string;
+  settings?: {
+    allowedFormTypes?: ('contact' | 'registration' | 'survey')[] | null;
+    maxSubmissionsPerForm?: number | null;
+    customEmailTemplate?: string | null;
+  };
+  updatedAt: string;
+  createdAt: string;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -327,6 +353,7 @@ export interface Form {
     | null;
   hasAttachment?: boolean | null;
   hasAttatchmentLabel?: string | null;
+  tenant?: (number | null) | Tenant;
   updatedAt: string;
   createdAt: string;
 }
@@ -345,6 +372,7 @@ export interface FormSubmission {
       }[]
     | null;
   file?: (number | null) | Media;
+  tenant?: (number | null) | Tenant;
   updatedAt: string;
   createdAt: string;
 }
@@ -362,6 +390,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'media';
         value: number | Media;
+      } | null)
+    | ({
+        relationTo: 'tenants';
+        value: number | Tenant;
       } | null)
     | ({
         relationTo: 'forms';
@@ -418,6 +450,14 @@ export interface PayloadMigration {
  * via the `definition` "users_select".
  */
 export interface UsersSelect<T extends boolean = true> {
+  role?: T;
+  tenant?: T;
+  tenants?:
+    | T
+    | {
+        tenant?: T;
+        id?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
   email?: T;
@@ -446,6 +486,23 @@ export interface MediaSelect<T extends boolean = true> {
   height?: T;
   focalX?: T;
   focalY?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "tenants_select".
+ */
+export interface TenantsSelect<T extends boolean = true> {
+  name?: T;
+  domain?: T;
+  settings?:
+    | T
+    | {
+        allowedFormTypes?: T;
+        maxSubmissionsPerForm?: T;
+        customEmailTemplate?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -579,6 +636,7 @@ export interface FormsSelect<T extends boolean = true> {
       };
   hasAttachment?: T;
   hasAttatchmentLabel?: T;
+  tenant?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -596,6 +654,7 @@ export interface FormSubmissionsSelect<T extends boolean = true> {
         id?: T;
       };
   file?: T;
+  tenant?: T;
   updatedAt?: T;
   createdAt?: T;
 }

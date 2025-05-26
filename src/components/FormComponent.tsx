@@ -14,135 +14,95 @@ type Field = {
   required?: boolean
 }
 
-type FormDataType = {
+type FormData = {
+  id: string
+  title: string
   fields: Field[]
   hasAttachment?: boolean
   hasAttatchmentLabel?: string
+  tenant: {
+    id: string
+    name: string
+  }
 }
 
-const FormComponent = ({ formId }: { formId: string }) => {
-  const [formData, setFormData] = useState<FormDataType | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const formRef = useRef<HTMLFormElement>(null)
-  const [submitMessage, setSubmitMessage] = useState<{
-    type: 'success' | 'error' | null
-    text: string
-  }>({ type: null, text: '' })
+type SubmitMessage = {
+  type: 'success' | 'error' | null
+  text: string
+}
 
-  // Step1- Getitng form data from Payload
+const FormComponent = ({ formId, tenantId }: { formId: string; tenantId: string }) => {
+  const [formData, setFormData] = useState<FormData | null>(null)
+  const [submitMessage, setSubmitMessage] = useState<SubmitMessage>({ type: null, text: '' })
+  const formRef = useRef<HTMLFormElement>(null)
+
   useEffect(() => {
     const fetchForm = async () => {
       try {
-        const response = await fetch(`/api/forms/${formId}`)
-        if (!response.ok) {
-          throw new Error('Failed to fetch form')
-        }
-        const formData = await response.json()
-        // console.log('Form data:', formData)
-        setFormData(formData)
+        const response = await fetch(`/api/forms/${formId}?tenant=${tenantId}`)
+        if (!response.ok) throw new Error('Failed to fetch form')
+        const data = await response.json()
+        setFormData(data)
       } catch (error) {
         console.error('Error fetching form:', error)
+        setSubmitMessage({
+          type: 'error',
+          text: 'Failed to load form. Please try again later.',
+        })
       }
     }
 
     fetchForm()
-  }, [formId])
+  }, [formId, tenantId])
 
-  // Step3- Handle form submission
+  console.log('tenant', tenantId)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const submittedFormData = new FormData(e.currentTarget as HTMLFormElement)
+    if (!formRef.current || !formData) return
 
-    const dataToBeSubmitted = Array.from(submittedFormData.entries()).map(([name, value]) => ({
-      field: name,
-      value: value.toString(),
-    }))
+    const formDataObj = new FormData(formRef.current)
+    const submissionData: Record<string, string> = {}
 
-    console.log('Data to be submitted:', dataToBeSubmitted)
-    const file = submittedFormData.get('attachment')
-    if (file && file instanceof File) {
-      console.log('File to be submitted:', file)
-
-      const fileToSend = new FormData()
-      fileToSend.append('file', file as File)
-      fileToSend.append('_payload', JSON.stringify({ alt: (file as File).name }))
-      try {
-        const fileResponse = await fetch('/api/media', {
-          method: 'POST',
-          body: fileToSend,
-        })
-
-        if (!fileResponse.ok) {
-          throw new Error('Failed to upload file')
-        }
-
-        const fileResult = await fileResponse.json()
-        console.log('File uploaded successfully:', fileResult.doc)
-        dataToBeSubmitted.push({ field: 'attachment', value: fileResult.doc.url })
-      } catch (error) {
-        console.error('Error uploading file:', error)
-        setError('Failed to upload attachment')
-        return
-      }
-    }
-
-    const response = await fetch('/api/form-submissions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        form: formId,
-        submissionData: dataToBeSubmitted,
-      }),
+    // Convert FormData to object
+    formDataObj.forEach((value, key) => {
+      submissionData[key] = value.toString()
     })
-    if (!response.ok) {
-      const errorData = await response.json()
-      setError(errorData.error || 'Something went wrong with the submission')
+    console.log(tenantId)
+
+    try {
+      const response = await fetch('/api/form-submissions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          form: formId,
+          tenant: tenantId,
+          submissionData: Object.entries(submissionData).map(([field, value]) => ({
+            field,
+            value,
+          })),
+        }),
+      })
+
+      if (!response.ok) throw new Error('Failed to submit form')
+
+      setSubmitMessage({
+        type: 'success',
+        text: 'Form submitted successfully!',
+      })
+      formRef.current.reset()
+    } catch (error) {
+      console.error('Error submitting form:', error)
       setSubmitMessage({
         type: 'error',
-        text: errorData || 'There was an error sending your message. Please try again.',
+        text: 'Failed to submit form. Please try again later.',
       })
-      return
     }
-    const result = await response.json()
-
-    let confirmationText = 'Thank you! Your message has been sent successfully.'
-
-    if (
-      result.doc.form.confirmationMessage.root &&
-      result.doc.form.confirmationMessage.root.children &&
-      result.doc.form.confirmationMessage.root.children.length > 0
-    ) {
-      const firstChild = result.doc.form.confirmationMessage.root.children[0]
-
-      if (firstChild.children && firstChild.children.length > 0) {
-        const textNode = firstChild.children[0]
-
-        if (textNode && textNode.text) {
-          confirmationText = textNode.text
-        }
-      }
-    }
-
-    setSubmitMessage({
-      type: 'success',
-      text: confirmationText,
-    })
-    setTimeout(() => {
-      setSubmitMessage({ type: null, text: '' })
-      formRef.current?.reset()
-    }, 5000)
   }
 
-  console.log('Form data:', formData?.fields)
-
-  // Step2- Render form fields based on formData
   if (!formData) {
     return <div>Loading form...</div>
-  }
-  if (error) {
-    return <div>Error: {error}</div>
   }
 
   return (
