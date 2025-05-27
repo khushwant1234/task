@@ -162,7 +162,6 @@ export default buildConfig({
             
             // Regular users can only access forms from their tenant
             if (user?.tenant) {
-              // Get tenant ID using your working function
               const tenantId = tryParseTenantId(user.tenant);
               if (tenantId !== null) {
                 return {
@@ -171,7 +170,6 @@ export default buildConfig({
               }
             }
             
-            // Default: no access
             return false;
           },
           update: ({ req }) => {
@@ -179,7 +177,6 @@ export default buildConfig({
             // Admins can update all forms
             if (user?.role === 'admin') return true;
             
-            // Regular users can only update forms from their tenant
             if (user?.tenant) {
               const tenantId = tryParseTenantId(user.tenant);
               if (tenantId !== null) {
@@ -193,10 +190,9 @@ export default buildConfig({
           },
           delete: ({ req }) => {
             const user = req.user as unknown as User;
-            // Admins can delete all forms
+            
             if (user?.role === 'admin') return true;
             
-            // Regular users can only delete forms from their tenant
             if (user?.tenant) {
               const tenantId = tryParseTenantId(user.tenant);
               if (tenantId !== null) {
@@ -283,7 +279,6 @@ export default buildConfig({
             
             // Regular users can only access form submissions from their tenant
             if (user?.tenant) {
-              // Get tenant ID using your working function
               const tenantId = tryParseTenantId(user.tenant);
               if (tenantId !== null) {
                 return {
@@ -291,16 +286,14 @@ export default buildConfig({
                 };
               }
             }
-            
-            // Default: no access
+            // No access by default
             return false;
           },
           update: ({ req }) => {
             const user = req.user as unknown as User;
-            // Admins can update all form submissions
+           
             if (user?.role === 'admin') return true;
             
-            // Regular users can only update form submissions from their tenant
             if (user?.tenant) {
               const tenantId = tryParseTenantId(user.tenant);
               if (tenantId !== null) {
@@ -314,10 +307,9 @@ export default buildConfig({
           },
           delete: ({ req }) => {
             const user = req.user as unknown as User;
-            // Admins can delete all form submissions
+           
             if (user?.role === 'admin') return true;
             
-            // Regular users can only delete form submissions from their tenant
             if (user?.tenant) {
               const tenantId = tryParseTenantId(user.tenant);
               if (tenantId !== null) {
