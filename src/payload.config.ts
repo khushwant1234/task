@@ -17,6 +17,31 @@ import type { User } from './payload-types'
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
+function tryParseTenantId(tenant: any): number | null {
+  if (tenant && typeof tenant === 'object' && 'id' in tenant) {
+    return typeof tenant.id === 'number' ? tenant.id : parseInt(tenant.id, 10) || null
+  }
+
+  if (typeof tenant === 'string') {
+    try {
+      const parsed = JSON.parse(tenant)
+      if (parsed && typeof parsed === 'object' && 'id' in parsed) {
+        return typeof parsed.id === 'number'
+          ? parsed.id
+          : parseInt(parsed.id, 10) || null
+      } else {
+        const raw = parseInt(tenant, 10)
+        return isNaN(raw) ? null : raw
+      }
+    } catch (e) {
+      const raw = parseInt(tenant, 10)
+      return isNaN(raw) ? null : raw
+    }
+  }
+
+  return null
+}
+
 export default buildConfig({
   admin: {
     user: Users.slug,
@@ -61,56 +86,44 @@ export default buildConfig({
         hooks: {
           beforeValidate: [
             async ({ data, req }) => {
-              // This runs before any validation - good place to fix the tenant
-              console.log('Form data before processing:', JSON.stringify(data));
-              
-              // Extract tenant ID from various possible formats
-              let tenantId = null;
               const user = req.user as unknown as User;
+              console.log('Current user:', user ? {
+                id: user.id,
+                email: user.email,
+                role: user.role,
+                tenant: user.tenant
+              } : 'No user');
               
-              // 1. If user is non-admin with tenant, use their tenant
+              let tenantId = null
               if (user && user.role !== 'admin' && user.tenant) {
-                tenantId = user.tenant;
-              } 
-              // 2. If tenant is an object with ID
-              else if (data?.tenant && typeof data?.tenant === 'object' && 'id' in data?.tenant) {
-                tenantId = data?.tenant.id;
+                console.log('Trying to parse tenant from user:', user.tenant);
+                tenantId = tryParseTenantId(user.tenant);
+                console.log('Parsed tenant ID from user:', tenantId);
+              } else {
+                console.log('Trying to parse tenant from data:', data?.tenant);
+                tenantId = tryParseTenantId(data?.tenant);
+                console.log('Parsed tenant ID from data:', tenantId);
               }
-              // 3. If tenant is a string that can be parsed
-              else if (data?.tenant && typeof data?.tenant === 'string') {
-                try {
-                  // Try parsing as JSON
-                  const parsed = JSON.parse(data?.tenant);
-                  if (parsed && typeof parsed === 'object' && 'id' in parsed) {
-                    tenantId = parsed.id;
-                  }
-                } catch (e) {
-                  // If not valid JSON, check if it's a numeric string
-                  if (!isNaN(Number(data?.tenant))) {
-                    tenantId = Number(data?.tenant);
-                  }
-                }
-              }
-              
-              // Set the tenant ID if we found one
-              if (tenantId) {
-                console.log(`Setting tenant ID to: ${tenantId}`);
+
+              if (tenantId !== null) {
+                console.log('Setting tenant ID in form data:', tenantId);
                 return {
                   ...data,
                   tenant: tenantId,
                 };
               }
-              
-              // Admin fallback
+
               if (user?.role === 'admin' && user.tenant && !data?.tenant) {
+                console.log('Admin fallback - using admin tenant:', user.tenant);
                 return {
                   ...data,
                   tenant: user.tenant,
                 };
               }
-              
+
+              console.log('No tenant ID found, returning original data');
               return data;
-            }
+            },
           ],
         },
         fields: ({ defaultFields }) => {
@@ -125,84 +138,106 @@ export default buildConfig({
               required: true,
               admin: {
                 position: 'sidebar',
-                condition: (data, siblingData) => {
-                  // Only show in admin UI for admin users
-                  return data?.role === 'admin' || false;
-                },
+                condition: () => true,
               },
-              // Keep field-level access controls but rely on global hook for data transformation
               access: {
                 read: ({ req, doc }) => {
                   if (!doc) return false;
                   const currentUser = req.user as unknown as User;
                   if (currentUser && currentUser.role === 'admin') return true;
-                  return currentUser && currentUser.tenant && doc.tenant 
-                    ? currentUser.tenant === doc.tenant 
+                  return currentUser && currentUser.tenant && doc.tenant
+                    ? currentUser.tenant === doc.tenant
                     : false;
                 },
-                create: ({ req }) => {
-                  return Boolean(req.user);
-                },
+                create: ({ req }) => Boolean(req.user),
               },
             },
-          ]
+          ];
+        },
+        access: {
+          read: ({ req }) => {
+            const user = req.user as unknown as User;
+            // Admins can access all forms
+            if (user?.role === 'admin') return true;
+            
+            // Regular users can only access forms from their tenant
+            if (user?.tenant) {
+              // Get tenant ID using your working function
+              const tenantId = tryParseTenantId(user.tenant);
+              if (tenantId !== null) {
+                return {
+                  tenant: { equals: tenantId }
+                };
+              }
+            }
+            
+            // Default: no access
+            return false;
+          },
+          update: ({ req }) => {
+            const user = req.user as unknown as User;
+            // Admins can update all forms
+            if (user?.role === 'admin') return true;
+            
+            // Regular users can only update forms from their tenant
+            if (user?.tenant) {
+              const tenantId = tryParseTenantId(user.tenant);
+              if (tenantId !== null) {
+                return {
+                  tenant: { equals: tenantId }
+                };
+              }
+            }
+            
+            return false;
+          },
+          delete: ({ req }) => {
+            const user = req.user as unknown as User;
+            // Admins can delete all forms
+            if (user?.role === 'admin') return true;
+            
+            // Regular users can only delete forms from their tenant
+            if (user?.tenant) {
+              const tenantId = tryParseTenantId(user.tenant);
+              if (tenantId !== null) {
+                return {
+                  tenant: { equals: tenantId }
+                };
+              }
+            }
+            
+            return false;
+          },
         },
       },
       formSubmissionOverrides: {
-        // Apply the same hook pattern to submissions
         hooks: {
           beforeValidate: [
             async ({ data, req }) => {
-              // Same code as above for form submissions
-              console.log('Form submission data before processing:', JSON.stringify(data));
-              
-              // Extract tenant ID from various possible formats
-              let tenantId = null;
               const user = req.user as unknown as User;
-              
-              // 1. If user is non-admin with tenant, use their tenant
+              let tenantId = null
               if (user && user.role !== 'admin' && user.tenant) {
-                tenantId = user.tenant;
-              } 
-              // 2. If tenant is an object with ID
-              else if (data?.tenant && typeof data?.tenant === 'object' && 'id' in data?.tenant) {
-                tenantId = data?.tenant.id;
+                tenantId = tryParseTenantId(user.tenant)
+              } else {
+                tenantId = tryParseTenantId(data?.tenant);
               }
-              // 3. If tenant is a string that can be parsed
-              else if (data?.tenant && typeof data?.tenant === 'string') {
-                try {
-                  // Try parsing as JSON
-                  const parsed = JSON.parse(data?.tenant);
-                  if (parsed && typeof parsed === 'object' && 'id' in parsed) {
-                    tenantId = parsed.id;
-                  }
-                } catch (e) {
-                  // If not valid JSON, check if it's a numeric string
-                  if (!isNaN(Number(data?.tenant))) {
-                    tenantId = Number(data?.tenant);
-                  }
-                }
-              }
-              
-              // Set the tenant ID if we found one
-              if (tenantId) {
-                console.log(`Setting tenant ID to: ${tenantId}`);
+
+              if (tenantId !== null) {
                 return {
                   ...data,
                   tenant: tenantId,
                 };
               }
-              
-              // Admin fallback
+
               if (user?.role === 'admin' && user.tenant && !data?.tenant) {
                 return {
                   ...data,
                   tenant: user.tenant,
                 };
               }
-              
+
               return data;
-            }
+            },
           ],
         },
         fields: ({ defaultFields }) => {
@@ -222,27 +257,78 @@ export default buildConfig({
               required: true,
               admin: {
                 position: 'sidebar',
-                condition: (data, siblingData) => {
-                  // Only show in admin UI for admin users
-                  return data?.role === 'admin' || false;
-                },
+                condition: () => true,
               },
               access: {
                 read: ({ req, doc }) => {
-                  if (!doc) return false; // If document doesn't exist, deny access
+                  if (!doc) return false;
                   const currentUser = req.user as unknown as User;
-                  // Check that both user and tenant properties exist before comparing
-                  return currentUser && currentUser.tenant && doc.tenant 
-                    ? currentUser.tenant === doc.tenant 
+                  return currentUser && currentUser.tenant && doc.tenant
+                    ? currentUser.tenant === doc.tenant
                     : false;
                 },
                 create: ({ req }) => {
                   const currentUser = req.user as unknown as User;
-                  return currentUser ? true : false // Allow any logged-in user to create forms
+                  return Boolean(currentUser);
                 },
               },
             },
-          ]
+          ];
+        },
+        access: {
+          read: ({ req }) => {
+            const user = req.user as unknown as User;
+            // Admins can access all form submissions
+            if (user?.role === 'admin') return true;
+            
+            // Regular users can only access form submissions from their tenant
+            if (user?.tenant) {
+              // Get tenant ID using your working function
+              const tenantId = tryParseTenantId(user.tenant);
+              if (tenantId !== null) {
+                return {
+                  tenant: { equals: tenantId }
+                };
+              }
+            }
+            
+            // Default: no access
+            return false;
+          },
+          update: ({ req }) => {
+            const user = req.user as unknown as User;
+            // Admins can update all form submissions
+            if (user?.role === 'admin') return true;
+            
+            // Regular users can only update form submissions from their tenant
+            if (user?.tenant) {
+              const tenantId = tryParseTenantId(user.tenant);
+              if (tenantId !== null) {
+                return {
+                  tenant: { equals: tenantId }
+                };
+              }
+            }
+            
+            return false;
+          },
+          delete: ({ req }) => {
+            const user = req.user as unknown as User;
+            // Admins can delete all form submissions
+            if (user?.role === 'admin') return true;
+            
+            // Regular users can only delete form submissions from their tenant
+            if (user?.tenant) {
+              const tenantId = tryParseTenantId(user.tenant);
+              if (tenantId !== null) {
+                return {
+                  tenant: { equals: tenantId }
+                };
+              }
+            }
+            
+            return false;
+          },
         },
       },
     }),
